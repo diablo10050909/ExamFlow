@@ -7,6 +7,12 @@
 <!-- Favicon 경로를 반드시 네 사이트의 파비콘으로 변경해라! 없으면 만들어! -->
 <link rel="icon" href="https://diablo10050909.github.io/asdasdasd/favicon.ico" type="image/x-icon">
 
+<!-- Flatpickr CSS: 이걸로 네놈의 달력 위젯이 강력한 디자인을 얻는다! -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<!-- Flatpickr Dark Theme (ExamFlow의 다크모드와 어울리게!) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
+
+
 <style>
 /* 기존 CSS는 그대로 둬! 이정도 디자인도 꽤 쓸만하거든. */
 :root{
@@ -277,11 +283,18 @@ main{
     <h3 id="formTitle"></h3>
     <input id="title" placeholder="시험 이름">
     <input id="subject" placeholder="과목">
-    <input type="date" id="start">
-    <input type="date" id="end">
+    <!-- input type="date"를 type="text"로 바꾸고, Flatpickr가 이걸 마법처럼 다뤄줄 것이다! -->
+    <input type="text" id="start" placeholder="시작일 선택 (클릭)">
+    <input type="text" id="end" placeholder="종료일 선택 (클릭)">
     <button onclick="ExamFlowApp.saveExam()">저장</button>
   </div>
 </main>
+
+<!-- Flatpickr JS 파일: 이 코드가 바로 네놈의 날짜 선택기를 조종하는 마법이다! -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<!-- Flatpickr 한국어 로케일: 언어까지 완벽하게 통제해라! -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
+
 
 <script>
 // 이 지옥 같은 코드를 정복할 준비가 됐나, 김희율? 존나 집중해!
@@ -299,7 +312,7 @@ const ExamFlowApp = {
         notification_granted: "알림 권한 획득 성공! 이제 세상이 네놈의 손에 있다.",
         notification_denied: "알림 권한이 거부되었다. 스스로를 방어할 기회를 버리는군.",
         notification_prompt: "알림 권한 대기 중... 결정을 내릴 때가 왔다.",
-        notification_unsupported: "이 빌어먹을 브라우저는 알림을 지원하지 않는다!"
+        notification_unsupported: "이 빌어먹을 브라우저는 Service Worker 또는 알림을 지원하지 않는다!"
       },
       en:{
         add:"Add Exam",edit:"Edit Exam",del:"Delete",start:"Start Date",end:"End Date",alert:"Upcoming Exams",
@@ -312,7 +325,7 @@ const ExamFlowApp = {
         notification_granted: "Notification permission granted! The world is in your hands.",
         notification_denied: "Notification permission denied. You are forsaking a chance to defend yourself.",
         notification_prompt: "Notification permission pending... Time to make a decision.",
-        notification_unsupported: "This cursed browser does not support notifications!"
+        notification_unsupported: "This cursed browser does not support Service Workers or Notifications!"
       },
       jp:{
         add:"試験追加",edit:"試験修正",del:"削除",start:"開始日",end:"終了日",alert:"今後の試験",
@@ -325,7 +338,7 @@ const ExamFlowApp = {
         notification_granted: "通知権限取得成功！これで世界が手中に！",
         notification_denied: "通知権限が拒否されました。自分を守る機会を捨てるなんて。",
         notification_prompt: "通知権限保留中...決断の時だ。",
-        notification_unsupported: "この忌まわしいブラウザは通知に対応していません！"
+        notification_unsupported: "この忌まわしいブラウザはService Workerまたは通知に対応していません！"
       },
       cn:{
         add:"添加考试",edit:"编辑考试",del:"删除",start:"开始日期",end:"结束日期",alert:"即将到来的考试",
@@ -338,7 +351,7 @@ const ExamFlowApp = {
         notification_granted: "通知权限获取成功！现在世界在你的掌控之中。",
         notification_denied: "通知权限被拒绝。你正在放弃保护自己的机会。",
         notification_prompt: "通知权限待定... 是时候做出决定了。",
-        notification_unsupported: "这个该死的浏览器不支持通知！"
+        notification_unsupported: "这个该死的浏览器不支持Service Worker或通知！"
       },
       es:{
         add:"Añadir Examen",edit:"Editar Examen",del:"Eliminar",start:"Fecha Inicio",end:"Fecha Fin",alert:"Próximos Exámenes",
@@ -351,7 +364,7 @@ const ExamFlowApp = {
         notification_granted: "¡Permiso de notificación concedido! El mundo está en tus manos.",
         notification_denied: "Permiso de notificación denegado. Estás renunciando a una oportunidad de defenderte.",
         notification_prompt: "Permiso de notificación pendiente... Es hora de tomar una decisión.",
-        notification_unsupported: "¡Este maldito navegador no soporta notificaciones!"
+        notification_unsupported: "¡Este maldito navegador no soporta Service Worker o Notificaciones!"
       }
     },
     
@@ -363,6 +376,10 @@ const ExamFlowApp = {
     lang: "ko",      // 현재 언어 설정. 이 언어로 세상을 지배한다!
     currentCalendarDate: new Date(), // 달력에 표시할 현재 월/년도.
 
+    // Flatpickr 인스턴스 저장. 이놈들을 잘 관리해야 한다.
+    startDatePicker: null,
+    endDatePicker: null,
+
     // 시스템 초기화. 딱 한 번만 실행되는 중요한 명령이다.
     async init() {
         // Service Worker 등록은 다른 어떤 작업보다 먼저! 이것이 백그라운드의 시작이다.
@@ -372,11 +389,61 @@ const ExamFlowApp = {
         this.setInitialLang();
         this.applyTheme();
         this.render(); // 모든 걸 다시 그려라!
-
-        // 페이지 로드 시 알림 권한을 바로 요청하지 않고, 사용자가 직접 버튼을 누르도록 유도.
-        // 이것이 더 사용자 친화적이며, 강제로 알림 팝업을 띄워 사용자에게 불편을 주지 않는 방법이다.
-        // 사용자에게 선택권을 줘라. (그러나 결국엔 네 선택을 따르게 만들면 된다.)
+        
+        // Flatpickr를 초기화한다! 이게 바로 새로운 날짜 선택기다!
+        this.initDatePickers();
     },
+
+    // Flatpickr를 초기화한다! 존나 강력한 날짜 선택기가 될 거다!
+    initDatePickers() {
+        const defaultFlatpickrOptions = {
+            dateFormat: "Y-m-d", // 날짜 포맷은 YYYY-MM-DD
+            locale: "ko",       // 한국어 로케일 (다른 언어도 T[this.lang]에 맞춰 변경 가능)
+            altInput: false,     // 숨겨진 input을 사용하지 않고 직접 input을 사용.
+            altFormat: "Y년 n월 j일", // 다른 포맷으로 표시하고 싶으면 이걸 사용.
+            // 테마는 CSS에서 Dark 테마를 불러왔으니 특별히 설정할 필요는 없지만,
+            // 더 세밀한 컨트롤을 원하면 theme.css 파일을 직접 만들 수도 있다.
+        };
+
+        // 시작 날짜 선택기
+        this.startDatePicker = flatpickr("#start", {
+            ...defaultFlatpickrOptions,
+            onChange: (selectedDates, dateStr, instance) => {
+                // 시작일이 선택되면, 종료일 선택기의 minDate를 자동으로 설정한다!
+                if (this.endDatePicker && selectedDates.length > 0) {
+                    this.endDatePicker.set("minDate", selectedDates[0]);
+                }
+            }
+        });
+
+        // 종료 날짜 선택기
+        this.endDatePicker = flatpickr("#end", {
+            ...defaultFlatpickrOptions,
+            onChange: (selectedDates, dateStr, instance) => {
+                // 종료일이 선택되면, 시작일 선택기의 maxDate를 자동으로 설정한다!
+                if (this.startDatePicker && selectedDates.length > 0) {
+                    this.startDatePicker.set("maxDate", selectedDates[0]);
+                }
+            }
+        });
+        
+        // 언어 변경 시 Flatpickr의 로케일도 변경되도록 한다.
+        // 이거 때문에 Flatpickr 인스턴스에 직접 접근해야 한다.
+        this.updateFlatpickrLocale();
+    },
+
+    // Flatpickr의 로케일을 업데이트한다. 언어 변경 시 사용.
+    updateFlatpickrLocale() {
+        if (this.startDatePicker) {
+            this.startDatePicker.set("locale", flatpickr.l10ns[this.lang] || flatpickr.l10ns.en); // 지원하는 언어가 없으면 영어로.
+            this.startDatePicker.redraw(); // UI 업데이트 강제.
+        }
+        if (this.endDatePicker) {
+            this.endDatePicker.set("locale", flatpickr.l10ns[this.lang] || flatpickr.l10ns.en);
+            this.endDatePicker.redraw();
+        }
+    },
+
 
     // 데이터를 로컬 스토리지에서 불러와라. 이게 바로 과거를 지배하는 방법이다.
     loadData() {
@@ -400,6 +467,7 @@ const ExamFlowApp = {
         this.lang = l;
         localStorage.lang = l;
         this.render(); // 언어가 바뀌면 모든 걸 다시 그려야 한다.
+        this.updateFlatpickrLocale(); // Flatpickr의 로케일도 변경해야지!
     },
 
     // 테마를 전환해라. 빛과 어둠을 조종한다!
@@ -412,8 +480,15 @@ const ExamFlowApp = {
     clearForm() {
         document.getElementById("title").value = "";
         document.getElementById("subject").value = "";
-        document.getElementById("start").value = "";
-        document.getElementById("end").value = "";
+        
+        // Flatpickr 인스턴스를 통해 날짜 필드를 초기화한다.
+        if (this.startDatePicker) this.startDatePicker.clear();
+        if (this.endDatePicker) this.endDatePicker.clear();
+
+        // 날짜 필드의 minDate, maxDate 제한도 해제하여 새로운 입력에 대비한다.
+        if (this.startDatePicker) this.startDatePicker.set("maxDate", null);
+        if (this.endDatePicker) this.endDatePicker.set("minDate", null);
+        
         this.editIndex = null;
         this.updateFormTitle(); // 폼 제목도 원상복구.
     },
@@ -463,8 +538,15 @@ const ExamFlowApp = {
         const examToEdit = this.exams[index];
         document.getElementById("title").value = examToEdit.title;
         document.getElementById("subject").value = examToEdit.subject;
-        document.getElementById("start").value = examToEdit.start;
-        document.getElementById("end").value = examToEdit.end;
+        
+        // Flatpickr 인스턴스를 통해 날짜를 설정한다.
+        if (this.startDatePicker) this.startDatePicker.setDate(examToEdit.start);
+        if (this.endDatePicker) this.endDatePicker.setDate(examToEdit.end);
+        
+        // 시작일/종료일 선택기의 min/maxDate도 적절히 설정하여 유효성 유지.
+        if (this.startDatePicker) this.startDatePicker.set("maxDate", examToEdit.end);
+        if (this.endDatePicker) this.endDatePicker.set("minDate", examToEdit.start);
+
         this.updateFormTitle(); // 폼 제목을 "시험 수정"으로 바꿔라.
     },
 
@@ -659,7 +741,7 @@ const ExamFlowApp = {
                 console.error('Service Worker 등록 실패!:', error);
             }
         } else {
-            console.warn('이 빌어먹을 브라우저는 Service Worker를 지원하지 않는다!');
+            console.warn(this.T[this.lang].notification_unsupported);
         }
     },
 
@@ -688,16 +770,6 @@ const ExamFlowApp = {
             // Service Worker가 활성화될 때까지 기다린다.
             await navigator.serviceWorker.ready;
             
-            // 모든 클라이언트 (탭)에게 메시지를 보낸다.
-            // 하지만 Service Worker 스크립트가 직접 데이터를 필요로 할 때, 
-            // `postMessage`를 사용하거나 (IndexedDB 같은) 공유 저장소를 이용하는 것이 좋다.
-            // 여기서는 Service Worker가 LocalStorage를 직접 읽도록 할 것이다.
-            // Service Worker는 LocalStorage에 직접 접근할 수 없으므로, 메인 스크립트가 LocalStorage에서 읽은 후 SW로 데이터를 보내줘야 한다.
-            
-            // SW에게 명령을 내리는 대신, SW 스스로가 LocalStorage를 읽도록 하기 위해 
-            // SW에게 데이터를 보낼 때 LocalStorage에 저장된 모든 시험 데이터를 함께 보내준다.
-            // SW는 이를 바탕으로 알림을 스케줄링할 것이다.
-
             if (this.serviceWorkerRegistration.active) {
                 // Service Worker에게 메시지를 보내서 알림 스케줄링을 요청한다.
                 this.serviceWorkerRegistration.active.postMessage({
@@ -715,6 +787,9 @@ const ExamFlowApp = {
 };
 
 // 페이지 로드 후 즉시 시스템을 가동시켜라! 즉시!
+window.addEventListener('DOMContentLoaded', () => ExamFlowApp.init());
+
+</script>
 window.addEventListener('DOMContentLoaded', () => ExamFlowApp.init());
 
 </script>
