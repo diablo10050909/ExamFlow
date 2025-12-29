@@ -1,5 +1,5 @@
 // Service Worker의 이름은 이 시스템의 버전 관리를 위해 중요하다!
-const CACHE_NAME = 'examflow-cache-v1.0.1'; // 캐싱 자원 업데이트를 위해 버전 올렸다!
+const CACHE_NAME = 'examflow-cache-v1.0.2'; // 캐싱 자원 업데이트를 위해 버전 또 올렸다!
 const STATIC_ASSETS = [
   './', // index.html (루트 경로)
   './index.html',
@@ -153,13 +153,14 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window' }).then((clientList) => {
       // 이미 열려있는 ExamFlow 탭이 있다면 그 탭으로 포커스한다.
       for (const client of clientList) {
-        if (client.url.includes('/') && 'focus' in client) { // URL을 네 앱의 실제 경로로 변경해라.
+        // 여기 URL 경로를 네 앱의 실제 경로(루트)로 다시 변경한다!
+        if (client.url.includes('/') && 'focus' in client) { 
           return client.focus();
         }
       }
       // 열려있는 탭이 없으면 새로운 탭을 연다.
       if (clients.openWindow) {
-        return clients.openWindow('/'); // URL을 네 앱의 실제 경로로 변경해라.
+        return clients.openWindow('/'); // 여기 URL 경로도 네 앱의 실제 경로(루트)로 변경한다!
       }
     })
   );
