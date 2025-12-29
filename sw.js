@@ -1,10 +1,18 @@
 // Service Worker의 이름은 이 시스템의 버전 관리를 위해 중요하다!
-const CACHE_NAME = 'examflow-cache-v1.0.0';
+const CACHE_NAME = 'examflow-cache-v1.0.1'; // 캐싱 자원 업데이트를 위해 버전 올렸다!
 const STATIC_ASSETS = [
   './', // index.html (루트 경로)
   './index.html',
-  './favicon.ico', // 파비콘 경로도 캐싱 대상에 포함시켜라.
-  // 나중에 CSS, JS, 이미지 파일 등을 추가한다면 여기에 캐싱 목록에 추가해라.
+  './favicon.ico', // 파비콘 경로
+  './icon-192x192.png', // PWA 아이콘 1
+  './icon-512x512.png', // PWA 아이콘 2
+  '/manifest.json', // Manifest 파일도 캐싱해야 한다!
+  // Flatpickr CDN 자원들을 여기에 강제로 때려 박아라! 오프라인에서도 작동시켜야지!
+  'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css',
+  'https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css',
+  'https://cdn.jsdelivr.net/npm/flatpickr', // Flatpickr JS 본체
+  'https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js', // Flatpickr 한국어 로케일 JS
+  // 여기에 추가적인 CSS, JS, 이미지 파일들이 있다면 더 추가해라!
 ];
 
 // 이 변수들은 메인 스크립트에서 받아올 데이터다.
@@ -72,14 +80,45 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 네트워크 요청을 가로챌 때. 모든 통신은 내 검열을 거쳐야 한다.
+// Service Worker가 네트워크 요청을 가로챌 때. 모든 통신은 내 검열을 거쳐야 한다.
 self.addEventListener('fetch', (event) => {
-  // 현재는 오프라인 지원을 위한 캐싱 전략이 핵심이 아니므로, 기본적인 캐시-우선 전략만 사용.
-  // (나중에 네놈의 앱이 더 거대해지면 다른 전략도 고려해라.)
+  // HTTP/HTTPS가 아닌 요청 (예: chrome-extension://)은 캐싱하지 않는다.
+  if (!event.request.url.startsWith('http')) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
-    })
+    caches.match(event.request)
+      .then((cachedResponse) => {
+        // 캐시된 응답이 있다면 그걸 먼저 반환한다.
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+
+        // 캐시에 없다면 네트워크 요청을 시도한다.
+        return fetch(event.request).then((response) => {
+          // 네트워크 응답이 유효하고, 요청이 GET 메소드일 경우에만 캐시에 저장한다.
+          if (!response || response.status !== 200 || response.type !== 'basic' || event.request.method !== 'GET') {
+            return response;
+          }
+
+          const responseToCache = response.clone(); // 응답은 한 번밖에 읽을 수 없으므로, 캐싱용으로 복제한다.
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache); // 네트워크 응답을 캐시에 저장한다.
+          });
+          return response;
+        });
+      })
+      .catch(() => {
+        // 네트워크와 캐시 모두 실패했을 때 (주로 오프라인 상황)
+        // STATIC_ASSETS에 캐시된 index.html을 반환하여 기본적인 앱 기능은 유지한다.
+        // 또는 특정 오프라인 페이지를 캐시했다면 그것을 반환할 수도 있다.
+        console.error('Fetch and cache failed for:', event.request.url);
+        if (STATIC_ASSETS.includes(event.request.url) || STATIC_ASSETS.includes(event.request.url + '/')) {
+          return caches.match('./index.html'); // 오프라인 시 index.html이라도 보여줘라!
+        }
+        // 기본적으로 아무것도 캐시되어 있지 않다면, 오류 처리 (여기서는 네트워크 오류 그대로 노출)
+      })
   );
 });
 
@@ -90,7 +129,10 @@ self.addEventListener('message', (event) => {
     currentExams = event.data.exams || [];
     currentLang = event.data.lang || 'ko';
     currentPalette = event.data.palette || [];
+    
     // 과목별 색상 할당 로직도 여기서 다시 실행하여 currentColors를 채운다.
+    // Flatpickr 색상은 메인 앱에서만 필요하므로 여기서는 굳이 필요없지만, 일관성을 위해 유지한다.
+    currentColors = {}; // 초기화
     currentExams.forEach(exam => {
         if (!currentColors[exam.subject]) {
             currentColors[exam.subject] = currentPalette[Object.keys(currentColors).length % currentPalette.length];
@@ -111,13 +153,13 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window' }).then((clientList) => {
       // 이미 열려있는 ExamFlow 탭이 있다면 그 탭으로 포커스한다.
       for (const client of clientList) {
-        if (client.url.includes('/index.html') && 'focus' in client) { // URL을 네 앱의 실제 경로로 변경해라.
+        if (client.url.includes('/') && 'focus' in client) { // URL을 네 앱의 실제 경로로 변경해라.
           return client.focus();
         }
       }
       // 열려있는 탭이 없으면 새로운 탭을 연다.
       if (clients.openWindow) {
-        return clients.openWindow('/index.html'); // URL을 네 앱의 실제 경로로 변경해라.
+        return clients.openWindow('/'); // URL을 네 앱의 실제 경로로 변경해라.
       }
     })
   );
@@ -126,7 +168,6 @@ self.addEventListener('notificationclick', (event) => {
 
 // === Service Worker 내부 알림 로직 ===
 // 이 부분은 브라우저가 실행 중이면 (탭이 닫혀있어도) 백그라운드에서 동작할 수 있다.
-// LocalStorage를 직접 접근할 수 없으므로, 메인 스크립트에서 받아온 `currentExams` 데이터를 사용한다.
 
 // 알림 고유 ID를 생성한다.
 function getNotificationTag(exam, diffDays) {
@@ -141,7 +182,7 @@ async function sendNotificationSW(examTitle, subject, diffDays) {
 
   await self.registration.showNotification(examTitle, {
     body: bodyMessage,
-    icon: './favicon.ico', // Service Worker 내부 경로는 상대 경로를 사용한다.
+    icon: './icon-192x192.png', // Service Worker 내부 경로는 상대 경로를 사용한다. PWA 아이콘 사용.
     tag: getNotificationTag({title: examTitle, start: ''}, diffDays), // 알림 그룹화를 위한 태그.
     data: {
       examTitle: examTitle,
@@ -163,37 +204,12 @@ async function checkAndSendNotificationsSW() {
     today.setHours(0, 0, 0, 0);
     const todayString = today.toISOString().split('T')[0];
 
-    // Service Worker는 LocalStorage에 직접 접근할 수 없으므로, IndexedDB를 사용해야 한다.
-    // 하지만 단순화를 위해, 여기서는 "sentNotifications" 로직을 Service Worker 내부의 `caches`에 저장하는 방식으로 구현.
-    // 아니면 메인 스크립트에서 이 데이터를 받아서 SW에게 넘겨주는 방식도 가능.
-    // (여기서는 `postMessage`로 받는 `currentExams` 데이터를 사용한다.)
-
-    // 실제로는 IndexedDB를 사용하여 Service Worker와 메인 스크립트가 공유하는 데이터를 관리하는 것이 좋다.
-    // 하지만 지금은 "sentNotifications"의 동기화를 복잡하게 만들지 않고, 
-    // Service Worker가 매번 데이터를 받을 때마다 "현재 보내야 할 알림"을 다시 평가하는 방식으로 간다.
-    // 이는 매번 메인 스크립트에서 SW로 데이터가 전송되어야 함을 의미한다.
-
-    // 대신, Service Worker는 자체적으로 "보낸 알림" 목록을 관리해야 한다.
-    // SW 내부의 변수는 SW가 재시작되면 초기화될 수 있으므로, 
-    // Service Worker도 IndexedDB나 Cache Storage에 `sentNotifications`를 저장하는 것이 안정적이다.
-
-    // 간단화를 위해 여기서는 "한 번 보내면 끝"이라는 가정 하에 현재 브라우저의 notification.getNotifications()를 통해
-    // 이미 같은 알림이 있는지 확인하는 방식을 사용한다. (하지만 완벽하진 않음)
-    
-    // 주기적인 알림 확인을 위한 `setInterval` 또는 `setTimeout`은 Service Worker 내부에서
-    // 보장된 백그라운드 실행을 보장하지 않는다. (브라우저가 SW를 종료시킬 수 있기 때문)
-    // 따라서, 메인 스크립트에서 데이터가 변경될 때마다 `SCHEDULE_NOTIFICATIONS` 메시지를 보내는 방식이 가장 현실적이다.
-    // 또는 `PeriodicSyncManager` API를 사용하여 브라우저가 SW를 주기적으로 깨울 수 있지만, 지원 범위가 제한적이다.
-
-    // 현재는 "메인 앱에서 데이터를 받으면 그 시점에 알림을 보낸다" 로직으로 간다.
-    // 사용자에게 즉각적인 피드백을 주기 위함이다.
-
-    // 이미 전송된 알림인지 확인하기 위한 간이 저장소 (Service Worker가 재시작되면 사라짐)
-    let swSentNotifications = JSON.parse(await caches.match('sent-notifications')
+    // Service Worker 내부의 캐시 저장소에 알림 전송 기록을 관리한다.
+    let swSentNotifications = JSON.parse(await caches.match(`${CACHE_NAME}-sent-notifications`)
         .then(response => response ? response.text() : '{}')
         .catch(() => '{}')) || {};
     
-    // 오늘 날짜가 아니면 이전 알림 기록을 삭제
+    // 오늘 날짜가 아니면 이전 알림 기록을 삭제하고 초기화한다.
     if (swSentNotifications.date !== todayString) {
         swSentNotifications = { date: todayString, exams: {} };
         console.log("SW: 이전 알림 기록 초기화됨.");
@@ -216,8 +232,9 @@ async function checkAndSendNotificationsSW() {
 
                 // 알림 보냈다고 기록
                 currentSentExams[notificationId] = true;
+                // 캐시 저장소에 업데이트된 알림 기록을 저장한다.
                 caches.open(CACHE_NAME).then(cache => {
-                    cache.put('sent-notifications', new Response(JSON.stringify(swSentNotifications)));
+                    cache.put(`${CACHE_NAME}-sent-notifications`, new Response(JSON.stringify(swSentNotifications)));
                 });
             }
         }
